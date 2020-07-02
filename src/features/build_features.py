@@ -1,6 +1,13 @@
 # christina lu
 # build_features.py
 
+import gensim
+from gensim import corpora, models
+from gensim.utils import simple_preprocess
+from gensim.parsing.preprocessing import STOPWORDS
+from nltk.stem import WordNetLemmatizer, SnowballStemmer
+from nltk.stem.porter import *
+import numpy as np
 import pandas as pd
 
 data_path = '../../../summer/'
@@ -63,17 +70,53 @@ tweet_file = data_path + 'tweets_negative.csv'
 topic_model = './topic_model/topics_25.model'
 # select top signal tweet for each user according to topic model
 
+np.random.seed(2020)
+stemmer = SnowballStemmer("english")
+
+def lemmatize_stemming(text):
+    return stemmer.stem(WordNetLemmatizer().lemmatize(text, pos='v'))
+
+def preprocess(text):
+    result = []
+    for token in gensim.utils.simple_preprocess(text):
+        if token not in gensim.parsing.preprocessing.STOPWORDS and len(token) > 3:
+            result.append(lemmatize_stemming(token))
+    return result
+
 # apply topic model to all tweets
 # add column to df of topic 12 probability
-def apply_topic_model():
-    pass
+def apply_topic_model(df):
+    lda = gensim.models.LdaModel.load(topic_model)
+    word_dict = gensim.corpora.dictionary.Dictionary.load(topic_model + '.id2word')
+
+    # get topic distributions for each
+    tweets = df['tweet_text']
+    proc_tweets = tweets[0].map(preprocess)
+    corpus = [word_dict.doc2bow(doc) for doc in proc_tweets]
+    preds = lda.get_document_topics(corpus)
+
+    # pull out pred for topic 12
+    topic_pred = []
+    for pred in preds:
+        prob = 0
+
+        for tup in pred:
+            if tup[0] == 12:
+                prob = tup[1]
+
+        topic_pred.append(prob)
+
+    df['topic_prob'] = topic_pred
 
 # select top tweet under topic 12 for each user
 # return df of user_id and top tweet text
-def select_top_tweet():
-    pass
+def select_top_tweet(df):
+    new_df = df.sort_values('topic_prob').drop_duplicates(['user_id'], keep='last')
+    return new_df
 
 # bert encode
+def build_tweet_features(filename):
+    df = pd.read_csv(filename)
+    apply_topic_model(df)
 
-def build_tweet_features():
-    pass
+    return select_top_tweet(df)
