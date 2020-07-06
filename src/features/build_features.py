@@ -9,13 +9,14 @@ from nltk.stem import WordNetLemmatizer, SnowballStemmer
 from nltk.stem.porter import *
 import numpy as np
 import pandas as pd
+import json
 
 data_path = '../../../summer/'
 
 # FEATURE TYPE: FOLLOWING -----------------------------------------------------
 # given list of 2000 most followed users in following_vector_file
 # create feature vector of size 2000, 1 if followed and 0 if not
-following_vector_file = './base_following_vector.csv'
+following_vector_file = '../features/base_following_vector.csv'
 following_data_file = data_path + 'following_negative.json'
 
 # gets base following vector from file
@@ -25,7 +26,8 @@ def get_top_vector(filename):
     return df[df.columns[0]].tolist()
 
 # build following features and return df
-def build_following_features(filename):
+def build_following_features():
+    filename = following_data_file
     vec = get_top_vector(following_vector_file)
 
     data_vecs = []
@@ -60,14 +62,16 @@ def build_following_features(filename):
                 append = True
                 obj += '{'
 
-    column_names = 'user_id' + vec
+    column_names = ['user_id'] + vec
     df = pd.DataFrame(data_vecs, columns=column_names)
 
     return df
 
 # FEATURE TYPE: SIGNAL TWEET --------------------------------------------------
-tweet_file = data_path + 'tweets_negative.csv'
-topic_model = './topic_model/topics_25.model'
+# file produced by combine_tweet_files and get_english_tweets, must be all english
+tweet_file = data_path + 'tweets_negative_final.csv'
+topic_model = '../features/topic_model/topics_25.model'
+signal_tweet_outname = './signal_tweet_negative_final.csv'
 # select top signal tweet for each user according to topic model
 
 np.random.seed(2020)
@@ -90,8 +94,7 @@ def apply_topic_model(df):
     word_dict = gensim.corpora.dictionary.Dictionary.load(topic_model + '.id2word')
 
     # get topic distributions for each
-    tweets = df['tweet_text']
-    proc_tweets = tweets[0].map(preprocess)
+    proc_tweets = df['tweet'].astype(str).map(preprocess)
     corpus = [word_dict.doc2bow(doc) for doc in proc_tweets]
     preds = lda.get_document_topics(corpus)
 
@@ -107,11 +110,18 @@ def apply_topic_model(df):
         topic_pred.append(prob)
 
     df['topic_prob'] = topic_pred
+    return df
 
 # select top tweet under topic 12 for each user
 # return df of user_id and top tweet text
-def select_top_tweet(df):
+def select_top_tweet(save=False):
+    data = pd.read_csv(tweet_file)
+    df = apply_topic_model(data)
+
     new_df = df.sort_values('topic_prob').drop_duplicates(['user_id'], keep='last')
+
+    if save:
+        new_df.to_csv(signal_tweet_outname, index=False)
     return new_df
 
 # bert encode
@@ -120,3 +130,5 @@ def build_tweet_features(filename):
     apply_topic_model(df)
 
     return select_top_tweet(df)
+
+select_top_tweet(True)
